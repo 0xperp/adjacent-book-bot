@@ -1,8 +1,4 @@
-# cf-workers-telegram-bot
-
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/codebam/cf-workers-telegram-bot)
-
-![screenshot of cf-workers-telegram-bot](/screenshot.png)
+# Adjacent Book Bot 
 
 serverless telegram bot on cf workers
 
