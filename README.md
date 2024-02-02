@@ -2,10 +2,9 @@
 
 Serverless telegram bot running on Cloudflare Workers
 
-## Getting started with cf-workers-telegram-bot
+## Setting Webhook
 
-Once you've deployed the bot you can get your Webhook command URL by doing any
-of the following.
+After the bot is deployed you need to set the telegram webhook. You can do so with any of the following
 
 - sha256sum(YourTelegramSecretKey) is the path to your webhook commands and
   should be put at the end of your worker URL to access commands such as
@@ -19,4 +18,9 @@ of the following.
 
 Example URL for setting the Webhook and dropping pending updates:
 
-`https://cf-workers-telegram-bot.codebam.workers.dev/a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447?command=set`
+`https://https://adjacent-book-bot.adjacentresearch.workers.dev//a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447?command=set`
+
+Commands are 
+- `set` set the webook
+- `get` get information on the webhook
+- `delete` delete the webhook
