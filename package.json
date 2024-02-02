@@ -15,5 +15,8 @@
 	],
 	"devDependencies": {
 		"@typescript-eslint/eslint-plugin": "^6.15.0"
+	},
+	"dependencies": {
+		"sha256sum": "^1.0.2"
 	}
 }

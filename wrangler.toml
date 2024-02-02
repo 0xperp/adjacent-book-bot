@@ -12,7 +12,7 @@ build.command = "npm install && npm run build:worker"
 [[d1_databases]]
 binding = "DB"
 database_name = "llama2"
-database_id = "e24eb37b-6b13-4e84-b1af-63de0dedcc6d"
+database_id = "d3905de9-554a-4861-89c1-eee6317eab67"
 
 [[r2_buckets]]
 binding = "R2"

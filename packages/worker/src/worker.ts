@@ -11,14 +11,6 @@ interface Environment {
 	KV_GET_SET: KVNamespace;
 	KV_UID_DATA: KVNamespace;
 
-	SECRET_TELEGRAM_API_TOKEN2: string;
-
-	SECRET_TELEGRAM_API_TOKEN3: string;
-
-	SECRET_TELEGRAM_API_TOKEN4: string;
-
-	SECRET_TELEGRAM_API_TOKEN5: string;
-
 	AI: string;
 
 	DB: D1Database;
@@ -30,7 +22,7 @@ export default {
 	fetch: async (request: Request, env: Environment) =>
 		new Handler([
 			{
-				bot_name: "@TuxRobot",
+				bot_name: "@adjacent_book_bot",
 				api: TelegramBot,
 				webhook: new TelegramWebhook(
 					new URL(
@@ -60,90 +52,8 @@ export default {
 					"/start": TelegramCommands.question as Command,
 				},
 				kv: { get_set: env.KV_GET_SET, uid_data: env.KV_UID_DATA },
-				ai: env.AI,
 				db: env.DB,
 				r2: env.R2,
-			},
-			{
-				bot_name: "@duckduckbot",
-				api: TelegramBot,
-				webhook: new TelegramWebhook(
-					new URL(
-						`https://api.telegram.org/bot${env.SECRET_TELEGRAM_API_TOKEN2}`
-					),
-					env.SECRET_TELEGRAM_API_TOKEN2,
-					new URL(new URL(request.url).origin)
-				),
-				commands: {
-					default: TelegramCommands.duckduckgo as Command,
-					inline: TelegramCommands.duckduckgo as Command, // default inline response
-					"/duckduckgo": TelegramCommands.duckduckgo as Command,
-					"/question": TelegramCommands.question as Command,
-					"/code": TelegramCommands.code as Command,
-					"/commands": TelegramCommands.commandList as Command,
-					"/help": TelegramCommands.commandList as Command,
-					"/start": TelegramCommands.commandList as Command,
-				},
-				ai: env.AI,
-				db: env.DB,
-			},
-			{
-				bot_name: "@ddggbot",
-				api: TelegramBot,
-				webhook: new TelegramWebhook(
-					new URL(
-						`https://api.telegram.org/bot${env.SECRET_TELEGRAM_API_TOKEN3}`
-					),
-					env.SECRET_TELEGRAM_API_TOKEN3,
-					new URL(new URL(request.url).origin)
-				),
-				commands: {
-					default: TelegramCommands.duckduckgo as Command,
-					inline: TelegramCommands.duckduckgo as Command,
-					"/duckduckgo": TelegramCommands.duckduckgo as Command,
-					"/question": TelegramCommands.question as Command,
-					"/code": TelegramCommands.code as Command,
-					"/commands": TelegramCommands.commandList as Command,
-					"/help": TelegramCommands.commandList as Command,
-					"/start": TelegramCommands.commandList as Command,
-				},
-				ai: env.AI,
-				db: env.DB,
-			},
-			{
-				bot_name: "@SeanB_robot",
-				api: TelegramBot,
-				webhook: new TelegramWebhook(
-					new URL(
-						`https://api.telegram.org/bot${env.SECRET_TELEGRAM_API_TOKEN4}`
-					),
-					env.SECRET_TELEGRAM_API_TOKEN4,
-					new URL(new URL(request.url).origin)
-				),
-				commands: {
-					default: TelegramCommands.sean as Command,
-					"/clear": TelegramCommands.clear as Command,
-					"/start": TelegramCommands.commandList as Command,
-				},
-				ai: env.AI,
-				db: env.DB,
-			},
-			{
-				bot_name: "@TranslatePartyBot",
-				api: TelegramBot,
-				webhook: new TelegramWebhook(
-					new URL(
-						`https://api.telegram.org/bot${env.SECRET_TELEGRAM_API_TOKEN5}`
-					),
-					env.SECRET_TELEGRAM_API_TOKEN5,
-					new URL(new URL(request.url).origin)
-				),
-				commands: {
-					default: TelegramCommands.translate as Command,
-					inline: TelegramCommands.translate as Command,
-					"/start": TelegramCommands.commandList as Command,
-				},
-				ai: env.AI,
 			},
 		]).handle(request),
 };
