@@ -1,6 +1,6 @@
 # Adjacent Book Bot 
 
-Serverless telegram bot on cf workers
+Serverless telegram bot running on Cloudflare Workers
 
 ## Getting started with cf-workers-telegram-bot
 
