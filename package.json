@@ -17,6 +17,8 @@
 		"@typescript-eslint/eslint-plugin": "^6.15.0"
 	},
 	"dependencies": {
+		"difflib": "^0.2.4",
+		"dotenv": "^16.4.1",
 		"sha256sum": "^1.0.2"
 	}
 }

@@ -1,26 +1,33 @@
 import { TelegramCommand } from "./types";
 
 export default class TelegramCommands {
-	static ping: TelegramCommand = async (bot, update, args) =>
-		bot.ping(update, args);
-	static toss: TelegramCommand = async (bot, update) => bot.toss(update);
-	static epoch: TelegramCommand = async (bot, update) => bot.epoch(update);
-	static kanye: TelegramCommand = async (bot, update) => bot.kanye(update);
-	static bored: TelegramCommand = async (bot, update) => bot.bored(update);
-	static joke: TelegramCommand = async (bot, update) => bot.joke(update);
-	static dog: TelegramCommand = async (bot, update) => bot.dog(update);
-	static roll: TelegramCommand = async (bot, update, args) =>
-		bot.roll(update, args);
-	static duckduckgo: TelegramCommand = async (bot, update, args) =>
-		bot.duckduckgo(update, args);
-	static question: TelegramCommand = async (bot, update, args) =>
-		bot.question(update, args);
-	static sean: TelegramCommand = async (bot, update, args) =>
-		bot.sean(update, args);
-	static clear: TelegramCommand = async (bot, update) => bot.clear(update);
-	static code: TelegramCommand = async (bot, update) => bot.code(update);
+	// health
+	static status: TelegramCommand = async (bot, update, args) =>
+		bot.status(update, args);
+
+	// admin
+	static authorize: TelegramCommand = async (bot, update) =>
+		bot.authorize(update);
+	static invite: TelegramCommand = async (bot, update) =>
+		bot.invite(update);
+	static viewAllOpenBets: TelegramCommand = async (bot, update) =>
+		bot.viewAllOpenBets(update);
+	static settle: TelegramCommand = async (bot, update, args) =>
+		bot.settleBets(update);
+
+	// about
 	static commandList: TelegramCommand = async (bot, update) =>
 		bot.commandList(update);
-	static translate: TelegramCommand = async (bot, update, args) =>
-		bot.translate(update, args);
+	static start: TelegramCommand = async (bot, update) =>
+		bot.start(update);
+
+	// betting
+	static logBet: TelegramCommand = async (bot, update, args) =>
+		bot.logBet(update);
+	static viewOpenBets: TelegramCommand = async (bot, update) =>
+		bot.viewOpenBets(update);
+
+	// events 
+	static getAllEvents: TelegramCommand = async (bot, update) =>
+		bot.getOddsForEvent(update);
 }

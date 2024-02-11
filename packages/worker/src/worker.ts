@@ -13,7 +13,9 @@ interface Environment {
 
 	AI: string;
 
-	DB: D1Database;
+	MESSAGES_DB: D1Database;
+	USERS_DB: D1Database;
+	BOOK_DB: D1Database;
 
 	R2: R2Bucket;
 }
@@ -32,26 +34,32 @@ export default {
 					new URL(new URL(request.url).origin)
 				),
 				commands: {
-					default: TelegramCommands.question as Command,
-					inline: TelegramCommands.question as Command,
-					"/ping": TelegramCommands.ping as Command,
-					"/toss": TelegramCommands.toss as Command,
-					"/epoch": TelegramCommands.epoch as Command,
-					"/kanye": TelegramCommands.kanye as Command,
-					"/bored": TelegramCommands.bored as Command,
-					"/joke": TelegramCommands.joke as Command,
-					"/dog": TelegramCommands.dog as Command,
-					"/roll": TelegramCommands.roll as Command,
-					"/duckduckgo": TelegramCommands.duckduckgo as Command,
-					"/code": TelegramCommands.code as Command,
+					// default: TelegramCommands.ping as Command,
+					// inline: TelegramCommands.dog as Command,
+
+					// betting
+					// "/events": TelegramCommands.getAllEvents as Command,
+					"/log": TelegramCommands.logBet as Command,
+					"/bets": TelegramCommands.viewOpenBets as Command,
+
+					// health
+					"/status": TelegramCommands.status as Command,
+
+					// admin 
+					"/auth": TelegramCommands.authorize as Command,
+					"/invite": TelegramCommands.invite as Command,
+					"/allBets": TelegramCommands.viewAllOpenBets as Command,
+					"/settle": TelegramCommands.settle as Command,
+
+					// about
 					"/commands": TelegramCommands.commandList as Command,
-					"/question": TelegramCommands.question as Command,
-					"/clear": TelegramCommands.clear as Command,
 					"/help": TelegramCommands.commandList as Command,
-					"/start": TelegramCommands.question as Command,
+					"/start": TelegramCommands.start as Command,
 				},
 				kv: { get_set: env.KV_GET_SET, uid_data: env.KV_UID_DATA },
-				db: env.DB,
+				messages_db: env.MESSAGES_DB,
+				user_db: env.USERS_DB,
+				book_db: env.BOOK_DB,
 				r2: env.R2,
 			},
 		]).handle(request),

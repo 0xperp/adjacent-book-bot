@@ -10,9 +10,19 @@ build.command = "npm install && npm run build:worker"
 #binding = "AI"
 
 [[d1_databases]]
-binding = "DB"
-database_name = "llama2"
-database_id = "d3905de9-554a-4861-89c1-eee6317eab67"
+binding = "MESSAGES_DB"
+database_name = "messages"
+database_id = "59399970-e74a-4137-b2e0-078e19ad0b9f"
+
+[[d1_databases]]
+binding = "USERS_DB"
+database_name = "users"
+database_id = "06dd5fbd-618b-4678-8b1f-1ca0b235b2af"
+
+[[d1_databases]]
+binding = "BOOK_DB"
+database_name = "book"
+database_id = "7210c3b8-1795-421f-a08b-f1814832fb04"
 
 [[r2_buckets]]
 binding = "R2"

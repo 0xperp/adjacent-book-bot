@@ -17,8 +17,10 @@ import {
 	Webhook,
 	Commands,
 	Kv,
+	Bet,
 } from "./types";
 import { Ai } from "@cloudflare/ai";
+import OddsAPI from "./odds_api";
 
 export default class TelegramBot extends TelegramApi {
 	url: URL;
@@ -26,9 +28,14 @@ export default class TelegramBot extends TelegramApi {
 	get_set: KVNamespace;
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	ai: any;
-	db: D1Database;
+	messages_db: D1Database;
+	user_db: D1Database;
+	book_db: D1Database;
 	r2: R2Bucket;
 	bot_name: string;
+	notAuthorizedMessage: string;
+	admins: number[];
+	oddsAPI: OddsAPI;
 
 	constructor(config: Config) {
 		super(
@@ -40,534 +47,600 @@ export default class TelegramBot extends TelegramApi {
 		this.kv = config.kv as Kv;
 		this.get_set = config.kv?.get_set as KVNamespace;
 		this.ai = config.ai;
-		this.db = config.db;
+		this.messages_db = config.messages_db;
+		this.user_db = config.user_db;
+		this.book_db = config.book_db;
 		this.r2 = config.r2;
 		this.bot_name = config.bot_name;
+		this.notAuthorizedMessage = `You are not *authorized* to use this bot. Contact @lucaskohorst if you would like to be invited`;
+		this.admins = [779540407]
+		this.oddsAPI = new OddsAPI('https://api.the-odds-api.com/v4/', '6239912a59fb467cf75080bd254d98ff');
 	}
 
-	// bot command: /translate
-	translate = async (
-		update: TelegramUpdate,
-		args: string[]
-	): Promise<Response> => {
-		if (this.ai === undefined) {
-			return new Response("ok");
-		}
-		const ai = new Ai(this.ai);
-		let _prompt: string;
-		if (args[0][0] === "/") {
-			_prompt = args.slice(1).join(" ");
+	// mock function
+	// mock = async (update: TelegramUpdate, args: string[]): Promise<any> => {
+	// 	// check if authorized first 
+	// 	await this.isAuthorized(update.message?.from.id ?? 0).then((results) => {
+	// 		if (results) {
+	// 			// all logic here
+	// 		} else {
+	// 			return this.sendMessage(
+	// 				update.message?.chat.id ?? 0,
+	// 				this.notAuthorizedMessage,
+	// 			);
+	// 		}
+	// 	}).catch((error) => {
+	// 		return this.sendMessage(
+	// 			update.message?.chat.id ?? 0,
+	// 			this.notAuthorizedMessage,
+	// 		);
+	// 	});
+	// };
+
+	// check if a user is authorized
+	isAuthorized = async (telegramId: number): Promise<boolean> => {
+		const { results } = await this.user_db
+			.prepare("SELECT * FROM users WHERE telegramId = ?")
+			.bind(telegramId)
+			.all();
+		if (results.length > 0) {
+			return true;
 		} else {
-			_prompt = args.join(" ");
+			return false;
 		}
-		if (_prompt === "") {
-			_prompt = "";
+	};
+
+	// check if a user is admin
+	isAdmin = async (telegramId: number): Promise<any> => {
+		if (this.admins.length != 0) {
+			for (const admin of this.admins) {
+				const { results } = await this.user_db
+					.prepare("SELECT * FROM Users WHERE telegramId = ?")
+					.bind(admin)
+					.all();
+				if (results.length > 0) {
+					return true;
+				} else {
+					return false;
+				}
+			}
+		} else {
+			return false;
 		}
-		const langs = ["french", "arabic", "german", "spanish", "russian"];
-		const inline_articles = await Promise.all(
-			langs.map(async (lang) => {
-				const response = await ai.run("@cf/meta/m2m100-1.2b", {
-					text: _prompt,
-					source_lang: lang,
-					target_lang: "english",
-				});
-				return new TelegramInlineQueryResultArticle(
-					response.translated_text,
-					`${lang}: ${response.translated_text}`
+	};
+
+	// bot command: /start
+	start = async (update: TelegramUpdate): Promise<any> => {
+		// check if already in database
+		const { results } = await this.user_db
+			.prepare("SELECT * FROM users WHERE telegramId = ?")
+			.bind(update.message?.from.id)
+			.all();
+		if (results.length > 0) {
+			// check if last_name is not null in the database
+			if (results[0].lastName) {
+				return this.sendMessage(
+					update.message?.chat.id ?? 0,
+					`Welcome back ${update.message?.from.username} you are already on the book, call /commands to see what you can do`
 				);
-			})
-		);
-		return this.answerInlineQuery(
-			update.inline_query?.id ?? 0,
-			inline_articles
-		);
-	};
-
-	// bot command: /clear
-	// reset the llama2 session by deleting messages from d1
-	clear = async (update: TelegramUpdate): Promise<Response> => {
-		const { success } = await this.db
-			.prepare("DELETE FROM Messages WHERE userId=?")
-			.bind(
-				update.inline_query
-					? update.inline_query.from.id
-					: update.message?.from.id
-			)
-			.run();
-		if (success) {
-			if (update.inline_query) {
-				return this.answerInlineQuery(update.inline_query.id, [
-					new TelegramInlineQueryResultArticle("_"),
-				]);
+			} else {
+				return this.sendMessage(
+					update.message?.chat.id ?? 0,
+					`You have been invited but not yet onboarded run /auth to get started`
+				);
 			}
-			return this.sendMessage(update.message?.chat.id ?? 0, "_");
-		}
-		return this.sendMessage(update.message?.chat.id ?? 0, "failed");
-	};
-
-	// bot command: /question
-	question = async (
-		update: TelegramUpdate,
-		args: string[]
-	): Promise<Response> => {
-		if (this.ai === undefined) {
-			return new Response("ok");
-		}
-		const ai = new Ai(this.ai);
-		let _prompt: string;
-		if (args[0][0] === "/") {
-			_prompt = args.slice(1).join(" ");
 		} else {
-			_prompt = args.join(" ");
+			// @TODO this doesn't actually ever run
+			return this.sendMessage(
+				update.message?.chat.id ?? 0,
+				this.notAuthorizedMessage,
+				"MarkdownV2"
+			);
 		}
-		if (_prompt === "") {
-			_prompt = "";
-		}
+	}
 
-		const results = await (async () => {
-			if (this.db) {
-				const { results } = await this.db
-					.prepare("SELECT * FROM Messages WHERE userId=?")
+	// bot command: /auth
+	authorize = async (update: TelegramUpdate): Promise<any> => {
+		// check if telegramId is authorized 
+		const { results } = await this.user_db
+			.prepare("SELECT authorized FROM users WHERE telegramId = ?")
+			.bind(update.message?.from.id)
+			.all();
+
+		if (results && results[0].authorized == 1) {
+			// check if last_name is not null
+			if (update.message?.from.last_name) {
+				// update user values
+				const { results } = await this.user_db
+					.prepare("UPDATE users SET username = ?, firstName = ?, lastName = ? WHERE telegramId = ?")
 					.bind(
-						update.inline_query
-							? update.inline_query.from.id
-							: update.message?.from.id
+						update.message?.from.username,
+						update.message?.from.first_name,
+						update.message?.from.last_name,
+						update.message?.from.id
 					)
 					.all();
-				return results;
-			}
-		})();
-
-		const old_messages: { role: string; content: string }[] = (() => {
-			if (results) {
-				return results.map((col) => ({
-					role: "system",
-					content: col.content as string,
-				}));
-			}
-			return [];
-		})();
-
-		const system_prompt =
-			"<s>" +
-			[
-				`Your name is ${this.bot_name}.`,
-				`You are talking to ${update.message?.from.first_name}.`,
-				`Your source code is at https://github.com/codebam/cf-workers-telegram-bot .`,
-				`the current date is ${new Date().toString()}`,
-			].reduce((acc, cur) => {
-				return acc + cur + "\n";
-			}) +
-			old_messages.reduce((acc, cur) => {
-				return acc + cur.content + "\n";
-			}, "") +
-			"</s>";
-
-		const p = system_prompt + "[INST]" + _prompt + "[/INST]";
-		const prompt = p.slice(p.length - 4096, p.length);
-		const response = await ai
-			.run("@hf/thebloke/orca-2-13b-awq", {
-				prompt,
-				max_tokens: 596,
-			})
-			.then(({ response }) =>
-				response
-					.replace(/(\[|)(\/|)INST(S|)(s|)(\]|)/, "")
-					.replace(/<<(\/|)SYS>>/, "")
-			);
-
-		if (this.db) {
-			const { success } = await this.db
-				.prepare("INSERT INTO Messages (id, userId, content) VALUES (?, ?, ?)")
-				.bind(
-					crypto.randomUUID(),
-					update.inline_query
-						? update.inline_query.from.id
-						: update.message?.from.id,
-					"[INST] " + _prompt + " [/INST]" + "\n" + response
-				)
-				.run();
-			if (!success) {
-				console.log("failed to insert data into d1");
-			}
-		}
-
-		if (response === "") {
-			this.clear(update);
-			return this.question(update, args);
-		} // sometimes llama2 doesn't respond when given lots of system prompts
-
-		if (update.inline_query) {
-			return this.answerInlineQuery(update.inline_query.id, [
-				new TelegramInlineQueryResultArticle(response),
-			]);
-		}
-		return this.sendMessage(
-			update.message?.chat.id ?? 0,
-			response,
-			"",
-			false,
-			false,
-			update.message?.message_id
-		);
-	};
-
-	// bot command: /sean
-	sean = async (update: TelegramUpdate, args: string[]): Promise<Response> => {
-		if (this.ai === undefined) {
-			return new Response("ok");
-		}
-		const ai = new Ai(this.ai);
-		let _prompt: string;
-		if (args[0][0] === "/") {
-			_prompt = args.slice(1).join(" ");
-		} else {
-			_prompt = args.join(" ");
-		}
-		if (_prompt === "") {
-			_prompt = "";
-		}
-
-		const results = await (async () => {
-			if (this.db) {
-				const { results } = await this.db
-					.prepare("SELECT * FROM Messages WHERE userId=?")
-					.bind(
-						update.inline_query
-							? update.inline_query.from.id
-							: update.message?.from.id
-					)
-					.all();
-				return results;
-			}
-		})();
-
-		const old_messages: { role: string; content: string }[] = (() => {
-			if (results) {
-				return results.map((col) => ({
-					role: "system",
-					content: col.content as string,
-				}));
-			}
-			return [];
-		})();
-
-		const system_prompt =
-			"<s>" +
-			[
-				`Your name is ${this.bot_name}.`,
-				`You are talking to ${update.message?.from.first_name}.`,
-				`Your source code is at https://github.com/codebam/cf-workers-telegram-bot .`,
-				`the current date is ${new Date().toString()}`,
-				"Sean Behan is a full stack developer who goes by the username codebam.",
-				"Sean Behan likes programming and video games.",
-				"Pretend to be Sean Behan but don't make things up.",
-			].reduce((acc, cur) => {
-				return acc + cur + "\n";
-			}) +
-			old_messages.reduce((acc, cur) => {
-				return acc + cur.content + "\n";
-			}, "") +
-			"</s>";
-
-		const p = system_prompt + "[INST]" + _prompt + "[/INST]";
-		const prompt = p.slice(p.length - 4096, p.length);
-
-		const response = await ai
-			.run("@hf/thebloke/orca-2-13b-awq", {
-				prompt,
-				max_tokens: 596,
-			})
-			.then(({ response }) =>
-				response
-					.replace(/(\[|)(\/|)INST(S|)(s|)(\]|)/, "")
-					.replace(/<<(\/|)SYS>>/, "")
-					.replace(/[OUT]/, "")
-			);
-
-		if (this.db) {
-			const { success } = await this.db
-				.prepare("INSERT INTO Messages (id, userId, content) VALUES (?, ?, ?)")
-				.bind(
-					crypto.randomUUID(),
-					update.inline_query
-						? update.inline_query.from.id
-						: update.message?.from.id,
-					"[INST] " + _prompt + " [/INST]" + "\n" + response
-				)
-				.run();
-			if (!success) {
-				console.log("failed to insert data into d1");
-			}
-		}
-
-		if (update.inline_query) {
-			return this.answerInlineQuery(update.inline_query.id, [
-				new TelegramInlineQueryResultArticle(response),
-			]);
-		}
-		return this.sendMessage(
-			update.message?.chat.id ?? 0,
-			response,
-			"",
-			false,
-			false,
-			update.message?.message_id
-		);
-	};
-
-	// bot command: /code
-	code = async (update: TelegramUpdate): Promise<Response> =>
-		((url) =>
-			update.inline_query
-				? this.answerInlineQuery(update.inline_query.id, [
-						new TelegramInlineQueryResultArticle(url),
-					])
-				: this.sendMessage(update.message?.chat.id ?? 0, url))(
-			"https://github.com/codebam/cf-workers-telegram-bot"
-		);
-
-	// bot command: /duckduckgo
-	duckduckgo = async (
-		update: TelegramUpdate,
-		args: string[]
-	): Promise<Response> =>
-		((query) =>
-			((duckduckgo_url) =>
-				update.inline_query && query === ""
-					? this.answerInlineQuery(update.inline_query.id, [
-							new TelegramInlineQueryResultArticle("https://duckduckgo.com"),
-						])
-					: update.inline_query
-						? fetch(
-								addSearchParams(new URL("https://api.duckduckgo.com"), {
-									q: query,
-									format: "json",
-									t: "telegram_bot",
-									no_redirect: "1",
-								}).href
-							).then((response) =>
-								response
-									.json()
-									.then((results) => results as DDGQueryResponse)
-									.then((ddg_response) =>
-										((
-											instant_answer_url,
-											thumb_url,
-											default_thumb_url = "https://duckduckgo.com/assets/icons/meta/DDG-icon_256x256.png"
-										) =>
-											this.answerInlineQuery(
-												update.inline_query?.id ?? 0,
-												instant_answer_url !== ""
-													? [
-															new TelegramInlineQueryResultArticle(
-																`${instant_answer_url}\n\n<a href="${
-																	addSearchParams(new URL(duckduckgo_url), {
-																		q: args
-																			.slice(2)
-																			.join(" ")
-																			.replace(/^!\w* /, ""),
-																	}).href
-																}">Results From DuckDuckGo</a>`,
-																instant_answer_url,
-																"HTML",
-																thumb_url
-															),
-															new TelegramInlineQueryResultArticle(
-																duckduckgo_url,
-																duckduckgo_url,
-																"",
-																default_thumb_url
-															),
-														]
-													: [
-															new TelegramInlineQueryResultArticle(
-																duckduckgo_url,
-																duckduckgo_url,
-																"",
-																default_thumb_url
-															),
-														],
-												3600 // 1 hour
-											))(
-											ddg_response.Redirect ?? ddg_response.AbstractURL,
-											ddg_response.Redirect === ""
-												? `https://duckduckgo.com${
-														ddg_response.Image !== "" && ddg_response.Image
-															? ddg_response.Image
-															: ddg_response.RelatedTopics.length !== 0 &&
-																  ddg_response.RelatedTopics[0].Icon.URL !== ""
-																? ddg_response.RelatedTopics[0].Icon.URL
-																: "/i/f96d4798.png"
-													}`
-												: ""
-										)
-									)
-							)
-						: this.sendMessage(update.message?.chat.id ?? 0, duckduckgo_url))(
-				query === ""
-					? "https://duckduckgo.com"
-					: (() => {
-							if (query[0][0] !== "/") {
-								return addSearchParams(new URL("https://duckduckgo.com"), {
-									q: query,
-								}).href;
-							}
-							return addSearchParams(new URL("https://duckduckgo.com"), {
-								q: query.split(" ").slice(1).join(" "),
-							}).href;
-						})()
-			))(args.join(" "));
-
-	// bot command: /kanye
-	kanye = async (update: TelegramUpdate): Promise<Response> =>
-		fetch("https://api.kanye.rest")
-			.then((response) => responseToJSON(response))
-			.then((json) =>
-				((message) =>
-					update.inline_query
-						? this.answerInlineQuery(update.inline_query.id, [
-								new TelegramInlineQueryResultArticle(message),
-							])
-						: this.sendMessage(update.message?.chat.id ?? 0, message))(
-					`Kanye says... ${json.quote}`
-				)
-			)
-			.catch(() => new Response("Failed to parse JSON"));
-
-	// bot command: /joke
-	joke = async (update: TelegramUpdate): Promise<Response> =>
-		fetch("https://v2.jokeapi.dev/joke/Any?safe-mode")
-			.then((response) => responseToJSON(response))
-			.then((joke) => joke as Joke)
-			.then((joke_response) =>
-				((message) =>
-					update.inline_query
-						? this.answerInlineQuery(
-								update.inline_query.id,
-								[
-									new TelegramInlineQueryResultArticle(
-										message,
-										joke_response.joke ?? joke_response.setup,
-										"HTML"
-									),
-								],
-								0
-							)
-						: this.sendMessage(update.message?.chat.id ?? 0, message, "HTML"))(
-					joke_response.joke ??
-						`${joke_response.setup}\n\n<tg-spoiler>${joke_response.delivery}</tg-spoiler>`
-				)
-			);
-
-	// bot command: /dog
-	dog = async (update: TelegramUpdate): Promise<Response> =>
-		fetch("https://shibe.online/api/shibes")
-			.then((response) => response.json())
-			.then((json) => json as [string])
-			.then((shibe_response) =>
-				update.inline_query
-					? this.answerInlineQuery(
-							update.inline_query.id,
-							[new TelegramInlineQueryResultPhoto(shibe_response[0])],
-							0
-						)
-					: this.sendPhoto(update.message?.chat.id ?? 0, shibe_response[0])
-			);
-
-	// bot command: /bored
-	bored = async (update: TelegramUpdate): Promise<Response> =>
-		fetch("https://boredapi.com/api/activity/")
-			.then((response) => responseToJSON(response))
-			.then((json) => json as Bored)
-			.then((bored_response) =>
-				update.inline_query
-					? this.answerInlineQuery(
-							update.inline_query.id,
-							[new TelegramInlineQueryResultArticle(bored_response.activity)],
-							0
-						)
-					: this.sendMessage(
-							update.message?.chat.id ?? 0,
-							bored_response.activity
-						)
-			);
-
-	// bot command: /epoch
-	epoch = async (update: TelegramUpdate): Promise<Response> =>
-		((seconds) =>
-			update.inline_query
-				? this.answerInlineQuery(
-						update.inline_query.id,
-						[new TelegramInlineQueryResultArticle(seconds)],
-						0
-					)
-				: this.sendMessage(update.message?.chat.id ?? 0, seconds))(
-			Math.floor(Date.now() / 1000).toString()
-		);
-
-	_average = (numbers: number[]): number =>
-		parseFloat(
-			(
-				numbers.reduce((prev, cur) => prev + cur, 0) / numbers.length || 0
-			).toFixed(2)
-		);
-
-	// bot command: /roll
-	roll = async (update: TelegramUpdate, args: string[]): Promise<Response> =>
-		((outcome, message) =>
-			update.inline_query
-				? this.answerInlineQuery(update.inline_query.id, [
-						new TelegramInlineQueryResultArticle(
-							message(
-								update.inline_query.from.username,
-								update.inline_query.from.first_name,
-								outcome
-							)
-						),
-					])
-				: this.sendMessage(
+				if (results) {
+					return this.sendMessage(
 						update.message?.chat.id ?? 0,
-						message(
-							update.message?.from.username ?? "",
-							update.message?.from.first_name ?? "",
-							outcome
-						)
-					))(
-			Math.floor(Math.random() * (parseInt(args[1]) || 6 - 1 + 1) + 1),
-			(username: string, first_name: string, outcome: number) =>
-				`${first_name ?? username} rolled a ${
-					parseInt(args[1]) || 6
-				} sided die. it landed on ${outcome}`
-		);
+						`${update.message?.from.username} updated in the database`
+					);
+				} else {
+					return this.sendMessage(
+						update.message?.chat.id ?? 0,
+						`${update.message?.from.username} either already in database or could not be added`
+					);
+				}
+			} else {
+				return this.sendMessage(
+					update.message?.chat.id ?? 0,
+					`You need to have a last name to be added to the database. Please update your profile and run /auth again`
+				);
+			}
+		} else {
+			// user is not authorized reach out to admin to get authorized
+			return this.sendMessage(
+				update.message?.chat.id ?? 0,
+				this.notAuthorizedMessage,
+				"MarkdownV2"
+			);
+		}
+	};
+
+	// bot command: /invite <user-id>
+	invite = async (update: TelegramUpdate): Promise<any> => {
+		// check if authorized first 
+		await this.isAdmin(update.message?.from.id ?? 0).then(async (results) => {
+			if (results) {
+				// message will be /invite <user-id> so we need to parse the user-id
+				const userId = Number(update.message?.text?.split(" ")[1]);
+
+				// check if user is already in database
+				let { results } = await this.user_db
+					.prepare("SELECT * FROM users WHERE telegramId = ?")
+					.bind(userId)
+					.all();
+
+				if (results.length > 0) {
+					// send message to user who invited 
+					return this.sendMessage(
+						update.message?.chat.id ?? 0,
+						`You have already invited user ${userId} let them know run run /auth to get started`,
+						"MarkdownV2"
+					);
+				}
+
+				// add user into user table with telegram id and authorized status 
+				await this.user_db
+					.prepare("INSERT INTO users (telegramId, authorized) VALUES (?, ?)")
+					.bind(userId, 1)
+					.all();
+
+				// send message to invited user
+				this.sendMessage(
+					userId ?? 0,
+					`Hi! You've been invited to the Adjacent Book. Run /auth to get started`
+				);
+
+				// send message to user who invited 
+				return this.sendMessage(
+					update.message?.chat.id ?? 0,
+					`Invited user ${userId} and added them to the authorized list`,
+					"MarkdownV2"
+				);
+			} else {
+				return this.sendMessage(
+					update.message?.chat.id ?? 0,
+					this.notAuthorizedMessage,
+					"MarkdownV2"
+				);
+			}
+		}).catch((error) => {
+			return this.sendMessage(
+				update.message?.chat.id ?? 0,
+				this.notAuthorizedMessage,
+				"MarkdownV2"
+			);
+		});
+	};
 
 	// bot command: /commandList
-	commandList = async (update: TelegramUpdate): Promise<Response> =>
-		this.sendMessage(
-			update.message?.chat.id ?? 0,
-			`${Object.keys(this.commands).join("\n")}`,
-			"HTML"
-		);
+	commandList = async (update: TelegramUpdate): Promise<any> => {
+		// check if authorized first 
+		await this.isAuthorized(update.message?.from.id ?? 0).then((results) => {
+			if (results) {
+				return this.sendMessage(
+					update.message?.chat.id ?? 0,
+					`${Object.keys(this.commands).join("\n")}`,
+					"MarkdownV2"
+				);
+			} else {
+				return this.sendMessage(
+					update.message?.chat.id ?? 0,
+					this.notAuthorizedMessage,
+					"MarkdownV2"
+				);
+			}
+		}).catch((error) => {
+			return this.sendMessage(
+				update.message?.chat.id ?? 0,
+				this.notAuthorizedMessage,
+				"MarkdownV2"
+			);
+		});
+	};
 
-	// bot command: /toss
-	toss = async (update: TelegramUpdate): Promise<Response> =>
-		this.sendMessage(
-			update.message?.chat.id ?? 0,
-			Math.floor(Math.random() * 2) == 0 ? "heads" : "tails"
-		);
+	// bot command: /status
+	status = async (update: TelegramUpdate, args: string[]): Promise<any> => {
+		// check if authorized first 
+		await this.isAuthorized(update.message?.from.id ?? 0).then((results) => {
+			if (results) {
+				return this.sendMessage(
+					update.message?.chat.id ?? 0,
+					"Adjacent's Book is _Live_",
+					"MarkdownV2"
+				);
+			} else {
+				return this.sendMessage(
+					update.message?.chat.id ?? 0,
+					this.notAuthorizedMessage,
+					"MarkdownV2"
+				);
+			}
+		}).catch((error) => {
+			return this.sendMessage(
+				update.message?.chat.id ?? 0,
+				this.notAuthorizedMessage,
+				"MarkdownV2"
+			);
+		});
+	};
 
-	// bot command: /ping
-	ping = async (update: TelegramUpdate, args: string[]): Promise<Response> =>
-		this.sendMessage(
-			update.message?.chat.id ?? 0,
-			args.length === 1 ? "pong" : args.slice(1).join(" ")
-		);
+	getEventsForSport = async (update: TelegramUpdate): Promise<any> => {
+		// get sport from message
+		const sport = update.message?.text?.split(" ")[1];
 
-	// bot command: /chatInfo
-	getChatInfo = async (update: TelegramUpdate): Promise<Response> =>
-		this.sendMessage(
-			update.message?.chat.id ?? 0,
-			preTagString(prettyJSON(update.message?.chat ?? 0)),
-			"HTML"
-		);
-}
+		// check if authorized first 
+		await this.isAuthorized(update.message?.from.id ?? 0).then(async (results) => {
+			if (results) {
+				if (sport) {
+					// pull all events from the odds api
+					await this.oddsAPI.getEvents(sport).then((response) => {
+						return this.sendMessage(
+							update.message?.chat.id ?? 0,
+							`This is the ${JSON.stringify(response)}`
+						);
+					}).catch(() => {
+						return this.sendMessage(
+							update.message?.chat.id ?? 0,
+							`Error for polling all events`
+						);
+					});
+				} else {
+					return this.sendMessage(
+						update.message?.chat.id ?? 0,
+						`Invalid command format. Please use /events <sport> <event-id>`
+					);
+				}
+			} else {
+				return this.sendMessage(
+					update.message?.chat.id ?? 0,
+					this.notAuthorizedMessage,
+				);
+			}
+		}).catch((error) => {
+			return this.sendMessage(
+				update.message?.chat.id ?? 0,
+				this.notAuthorizedMessage,
+			);
+		});
+	};
+
+	getOddsForEvent = async (update: TelegramUpdate): Promise<any> => {
+		// message will be /events <sport> <event-id> so we need to parse the sport and event-id
+		const sport = update.message?.text?.split(" ")[1];
+		const eventId = update.message?.text?.split(" ")[2];
+		// check if authorized first 
+		await this.isAuthorized(update.message?.from.id ?? 0).then(async (results) => {
+			if (results) {
+				// check if sport and eventId are not undefined
+				if (sport && eventId) {
+					// pull all events from the odds api
+					await this.oddsAPI.getEventsOdds(sport, eventId).then((response) => {
+						return this.sendMessage(
+							update.message?.chat.id ?? 0,
+							`This is the ${JSON.stringify(response)}`
+						);
+					}).catch((error) => {
+						return this.sendMessage(
+							update.message?.chat.id ?? 0,
+							`Error for polling all events ${error}\n called with ${sport} and ${eventId}`
+						);
+					});
+				} else {
+					return this.sendMessage(
+						update.message?.chat.id ?? 0,
+						`Invalid command format. Please use /events <sport> <event-id>`
+					);
+				}
+			} else {
+				return this.sendMessage(
+					update.message?.chat.id ?? 0,
+					this.notAuthorizedMessage,
+				);
+			}
+		}).catch((error) => {
+			return this.sendMessage(
+				update.message?.chat.id ?? 0,
+				this.notAuthorizedMessage,
+			);
+		});
+	};
+
+	calculatePotentialWinnings = (amount: number, odds: number): number => {
+		const decimalOdds = odds >= 0 ? 1 + odds / 100 : 1 - 100 / odds;
+		const potentialWinnings = parseFloat((amount * decimalOdds).toFixed(2));
+		return potentialWinnings;
+	};
+
+	// logBet
+	logBet = async (update: TelegramUpdate): Promise<any> => {
+		// bets will be logged as /log <bet amount> <odds> <event description>
+		const amount = update.message?.text?.split(" ")[1];
+		const odds = update.message?.text?.split(" ")[2];
+		// description is everything else
+		const description = update.message?.text?.split(" ").slice(3).join(" ");
+
+		// check if authorized first 
+		await this.isAuthorized(update.message?.from.id ?? 0).then(async (results) => {
+			if (results) {
+				// take the bet and log it in the database, the columns are amount, odds, eventDescription, toWin, telegramId, datePlaced
+				// parse amount and odds into numbers if defined
+				if (amount && odds) {
+					const parsedAmount = parseInt(amount);
+					const parsedOdds = parseInt(odds);
+					const randomHexId = Array.from({ length: 5 }, () => Math.floor(Math.random() * 16).toString(16)).join('') + '-' + Array.from({ length: 5 }, () => Math.floor(Math.random() * 16).toString(16)).join('') + '-' + Array.from({ length: 5 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+
+					const { results } = await this.book_db
+						.prepare("INSERT INTO bets (id, amount, odds, eventDescription, to_win, telegramId, date_placed) VALUES (?, ?, ?, ?, ?, ?, ?)")
+						.bind(
+							randomHexId,
+							amount,
+							odds,
+							description,
+							this.calculatePotentialWinnings(parsedAmount, parsedOdds),
+							update.message?.from.id,
+							new Date().toISOString().slice(0, 19).replace('T', ' ')
+						)
+						.all();
+
+					// send message to user who logged the bet
+					return this.sendMessage(
+						update.message?.chat.id ?? 0,
+						`Bet logged for ${update.message?.from.username} for ${amount} at ${odds} odds for ${description}`
+					);
+				} else {
+					return this.sendMessage(
+						update.message?.chat.id ?? 0,
+						`Invalid command format. Please use /log <bet amount> <odds> <event description>`
+					);
+				}
+			} else {
+				return this.sendMessage(
+					update.message?.chat.id ?? 0,
+					"else",
+				);
+			}
+		}).catch((error) => {
+			return this.sendMessage(
+				update.message?.chat.id ?? 0,
+				this.notAuthorizedMessage,
+			);
+		});
+	}
+
+	// format bet 
+	formatBet = (bet: Bet): string => {
+		return `- ${bet.id}, ${bet.amount} at ${bet.odds} odds for ${bet.eventDescription} with potential winnings of ${bet.to_win}`;
+	}
+
+	// view all bets 
+	// show value at risk and potential to win
+	viewOpenBets = async (update: TelegramUpdate): Promise<any> => {
+		// check if authorized first 
+		await this.isAuthorized(update.message?.from.id ?? 0).then(async (results) => {
+			if (results) {
+				// pull all bets from the book
+				const { results } = await this.book_db
+					.prepare("SELECT * FROM bets WHERE telegramId = ? AND date_settled IS NULL")
+					.bind(update.message?.from.id)
+					.all();
+
+				if (results.length > 0) {
+					// pull bets from the results
+					let message = `Bets for ${update.message?.from.first_name}:\n`;
+					results.map((bet: any) => {
+						// take bet and make it the type Bet
+						const formattedBet: Bet = {
+							id: bet.id,
+							amount: bet.amount,
+							odds: bet.odds,
+							eventDescription: bet.eventDescription,
+							to_win: bet.to_win,
+							telegramId: bet.telegramId,
+							date_placed: bet.date_placed
+						}
+						// add the formatted bet to the message
+						message += this.formatBet(formattedBet) + "\n";
+					});
+
+					// send the message after all bets have been added
+					return this.sendMessage(
+						update.message?.chat.id ?? 0,
+						`${message}`
+					);
+				} else {
+					return this.sendMessage(
+						update.message?.chat.id ?? 0,
+						`No bets found for ${update.message?.from.username}`
+					);
+				}
+			} else {
+				return this.sendMessage(
+					update.message?.chat.id ?? 0,
+					this.notAuthorizedMessage,
+				);
+			}
+		}).catch((error) => {
+			return this.sendMessage(
+				update.message?.chat.id ?? 0,
+				this.notAuthorizedMessage,
+			);
+		});
+	};
+
+	// view all bets if admin 
+	// show value at risk and potential to win
+	viewAllOpenBets = async (update: TelegramUpdate): Promise<any> => {
+		// check if admin first 
+		await this.isAdmin(update.message?.from.id ?? 0).then(async (results) => {
+			if (results) {
+				// pull all bets from the book
+				const { results } = await this.book_db
+					.prepare("SELECT * FROM bets WHERE date_settled IS NULL")
+					.all();
+
+				if (results.length > 0) {
+					// pull bets from the results
+					let message = `All Bets:\n`;
+					const bets = results.map((bet: any) => {
+						// take bet and make it the type Bet
+						const formattedBet: Bet = {
+							id: bet.id,
+							amount: bet.amount,
+							odds: bet.odds,
+							eventDescription: bet.eventDescription,
+							to_win: bet.to_win,
+							telegramId: bet.telegramId,
+							date_placed: bet.date_placed
+						}
+						// add the formatted bet to the message
+						message += this.formatBet(formattedBet) + "\n";
+					})
+
+					return this.sendMessage(
+						update.message?.chat.id ?? 0,
+						`${message}`
+					);
+				} else {
+					return this.sendMessage(
+						update.message?.chat.id ?? 0,
+						`No bets found`
+					);
+				}
+			} else {
+				return this.sendMessage(
+					update.message?.chat.id ?? 0,
+					this.notAuthorizedMessage,
+				);
+			}
+		}).catch((error) => {
+			return this.sendMessage(
+				update.message?.chat.id ?? 0,
+				this.notAuthorizedMessage,
+			);
+		});
+	}
+
+	// settle bets
+	settleBets = async (update: TelegramUpdate): Promise<any> => {
+		// called like /settle <bet-id> <outcome> 
+		// outcome is either won or loss
+		const betId = update.message?.text?.split(" ")[1];
+		const outcome = update.message?.text?.split(" ")[2];
+
+		// check if admin first 
+		// check if admin first 
+		await this.isAdmin(update.message?.from.id ?? 0).then(async (results) => {
+			if (results) {
+				// pull all bets from the book
+				let { results: betResults } = await this.book_db
+					.prepare("SELECT * FROM bets WHERE id = ?")
+					.bind(betId)
+					.all();
+
+				if (betResults.length > 0) {
+					// update the bet with the outcome
+					let settlement = "False"
+					let amount = betResults[0].amount
+
+					// check type of amount, if number make it negative if string convert to negative number
+					if (typeof amount === 'number') {
+						amount = -amount
+					} else {
+						return this.sendMessage(
+							update.message?.chat.id ?? 0,
+							`Bet ${betId} could not be settled. This is a database issue. Contact the admin @lucaskohorst`
+						);
+					}
+
+					if (outcome == "won") {
+						settlement = "True"
+						// get bet amount if won
+						amount = betResults[0].to_win
+					}
+
+					let { results: updateResults } = await this.book_db
+						.prepare("UPDATE bets SET date_settled = ?, won = ? WHERE id = ?")
+						.bind(
+							new Date().toISOString().slice(0, 19).replace('T', ' '),
+							settlement,
+							betId
+						).all();
+
+					if (updateResults) {
+						// append the bet to the transaction log
+						const randomHexId = Array.from({ length: 4 }, () => Math.floor(Math.random() * 16).toString(16)).join('') + '-' + Array.from({ length: 4 }, () => Math.floor(Math.random() * 16).toString(16)).join('') + '-' + Array.from({ length: 4 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+						const { results: insertResults } = await this.user_db
+							.prepare("INSERT INTO transactions (id, betId, telegramId, transaction_date, amount, description) VALUES (?, ?, ?, ?, ?, ?)")
+							.bind(
+								randomHexId,
+								betId,
+								update.message?.from.id,
+								new Date().toISOString().slice(0, 19).replace('T', ' '),
+								amount,
+								`${betId} settled as ${outcome} by ${update.message?.from.username}`
+							).all();
+
+						return this.sendMessage(
+							update.message?.chat.id ?? 0,
+							`Bet ${betId} has been settled and appended to the transaction log`
+						);
+					} else {
+						return this.sendMessage(
+							update.message?.chat.id ?? 0,
+							`Bet ${betId} could not be settled. Use /bet <bet-id> <won/loss> to settle a bet`
+						);
+					}
+				} else {
+					return this.sendMessage(
+						update.message?.chat.id ?? 0,
+						`Bet not found. Use /bet <bet-id> <won/loss> to settle a bet`
+					);
+				}
+			} else {
+				return this.sendMessage(
+					update.message?.chat.id ?? 0,
+					this.notAuthorizedMessage,
+				);
+			}
+
+		}).catch((error) => {
+			return this.sendMessage(
+				update.message?.chat.id ?? 0,
+				// this.notAuthorizedMessage,
+				`${error}`
+			);
+		});
+	}
+};

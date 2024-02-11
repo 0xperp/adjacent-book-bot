@@ -31,9 +31,12 @@ export class Config {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	ai: any;
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	db: any;
+	messages_db: any;
+	user_db: any;
+	book_db: any;
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	r2: any;
+	oddsAPI: any;
 
 	constructor(config: Partial<Config> = {}) {
 		this.bot_name = config.bot_name || "";
@@ -44,8 +47,11 @@ export class Config {
 		this.url = config.url || new URL(localhost);
 		this.handler = config.handler || new Handler([]);
 		this.ai = config.ai;
-		this.db = config.db;
+		this.messages_db = config.messages_db;
+		this.user_db = config.user_db;
+		this.book_db = config.book_db;
 		this.r2 = config.r2;
+		this.oddsAPI = config.oddsAPI;
 	}
 }
 
@@ -92,6 +98,7 @@ export type Balance = Record<
 
 export type TelegramFrom = {
 	first_name: string;
+	last_name: string;
 	id: number;
 	is_bot: boolean;
 	language_code: string;
@@ -341,4 +348,17 @@ export type DDGQueryResponse = {
 	Redirect: string;
 	Image: string;
 	RelatedTopics: { Icon: { URL: string } }[];
+};
+
+export type Bet = {
+	id: string;
+	amount: number;
+	odds: number;
+	eventDescription?: string;
+	event?: string;
+	to_win: number;
+	telegramId: number;
+	date_placed: string;
+	date_settled?: string;
+	won?: boolean;
 };
